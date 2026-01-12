@@ -2,12 +2,11 @@ import nibabel as nib
 import numpy as np
 import os
 import argparse
-import torch
-from HD_BET.run import run_hd_bet
-
+import subprocess
+import shutil
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Brain extraction (skull-stripping) using HD-BET.')
+    parser = argparse.ArgumentParser(description='Brain extraction (skull-stripping) using mri_synthstrip.')
 
     parser.add_argument(
         '--mp2rage-inv2',
@@ -39,20 +38,7 @@ if __name__ == '__main__':
     assert not (args.mp2rage_inv2 and args.mp2rage_inv2x), 'Invalid arguments: Cannot specify both --mp2rage-inv2 and --mp2rage-inv2x'
     assert os.path.isfile(args.input), 'Error: Input file {} not found'.format(args.input)
     
-    # default options
-    hdbet_mode = 'accurate'
-    hdbet_tta = True
-    hdbet_device = 0
-    
-    print('Brain extraction using HD-BET [https://doi.org/10.1002/hbm.24750] ...')
-    
-    if hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
-	    hdbet_device = 'mps'
-    elif not torch.cuda.is_available():
-        print('No GPU found. Running hd-bet in fast mode, check results! Make sure you have enough memory.')
-        hdbet_mode = 'fast'
-        hdbet_device = 'cpu'
-        hdbet_tta = False
+    print('Brain extraction using mri_synthstrip ...')
     
     input_file = args.input
     output_file = args.output
@@ -76,13 +62,17 @@ if __name__ == '__main__':
         print('Using {} to generate brain mask'.format(input_file))
         
     
-    # run HD-BET
-    run_hd_bet(input_file, output_file, mode=hdbet_mode, device=hdbet_device, postprocess=True, do_tta=hdbet_tta, bet=True)
+    # run mri_synthstrip
+    # mri_synthstrip -i input -o output -m mask
+    mask_file_tmp = output_file[:-7] + '_mask.nii.gz'
+    cmd = ['mri_synthstrip', '-i', input_file, '-o', output_file, '-m', mask_file_tmp]
+    print('Running: {}'.format(' '.join(cmd)))
+    subprocess.check_call(cmd)
     
     if args.mp2rage_inv2 or args.mp2rage_inv2x:
         # rename mask from intermediate image
         mask_file = args.output[:-7] + '_mask.nii.gz'
-        os.rename(output_file[:-7] + '_mask.nii.gz', mask_file)
+        os.rename(mask_file_tmp, mask_file)
         
         # apply brain mask from intermediate image to original UNI image
         src_nib = nib.load(args.input)

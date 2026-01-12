@@ -5,17 +5,18 @@ cat << EOF
 Usage: dl+direct [-h] [-s subject] [-b [-i inv2_file]] [-n] [-m model_file] [-k] T1_FILE OUTPUT_DIR
 Process T1_FILE (nifti) with dl+direct and put results into OUTPUT_DIR.
 Input is expected to be a skull-stripped T1w MRI. You may specify --bet to remove
-the skull (using hd-bet).
+the skull (using mri_synthstrip).
 
 optional arguments:
 	-h|--help		show this usage
 	-s|--subject		subject-id (written to .csv results)
-	-b|--bet		Skull-stripping using hd-bet
+	-b|--bet		Skull-stripping using mri_synthstrip
 	-i|--mp2rage-inv2	Use given 2nd inversion recovery image from an MP2Rage to generate brain mask
 	-n|--no-cth		Skip cortical thickness (DiReCT), just perform segmentation	
 	-m|--model		Use given trained model
 	-k|--keep		Keep intermediate files
 	-l|--lowmem		Use less memory (use fp16 for ensembling)
+	--native		Keep native resolution (do not resample to 1mm iso)
 	
 EOF
 	exit 0
@@ -41,6 +42,7 @@ DO_SKULLSTRIP=0
 DO_CT=1
 KEEP_INTERMEDIATE=0
 LOW_MEM_ARG=""
+NATIVE_RES_ARG=""
 MODEL_ARGS=""
 MP2RAGE_INV2=""
 if [ -z "${ITK_GLOBAL_DEFAULT_NUMBER_OF_THREADS}" ] ; then
@@ -60,6 +62,7 @@ while [[ $# -gt 0 ]]; do
 		-m|--model)	shift; MODEL_ARGS="--model $1" ;;
 		-k|--keep)	KEEP_INTERMEDIATE=1 ;;
 		-l|--lowmem)	LOW_MEM_ARG="--lowmem True" ;;
+		--native)	NATIVE_RES_ARG="--no-resample" ;;
 		-*)		invalid "$1" ;;
 		*)		POSITIONAL+=("$1") ;;
 	esac
@@ -79,7 +82,7 @@ SCRIPT_DIR=`dirname $0`/src
 
 # check prerequisites
 [[ -f ${T1} ]] || die "Invalid input volume: ${T1} not found"
-[[ ${DO_SKULLSTRIP} -eq 0 ]] || [[ "`which hd-bet`X" != "X" ]] || die "hd-bet not found. Install it from https://github.com/MIC-DKFZ/HD-BET"
+[[ ${DO_SKULLSTRIP} -eq 0 ]] || [[ "`which mri_synthstrip`X" != "X" ]] || die "mri_synthstrip not found. Ensure FreeSurfer is installed and configured."
 
 mkdir -p ${DST} || die "Could not create target directory ${DST}"
 
@@ -89,7 +92,7 @@ cat ${SCRIPT_DIR}/../doc/cite.md
 echo
 
 # convert into freesurfer space (resample to 1mm voxel, orient to LIA)
-python ${SCRIPT_DIR}/conform.py "${T1}" "${DST}/T1w_norm.nii.gz"
+python ${SCRIPT_DIR}/conform.py ${NATIVE_RES_ARG} "${T1}" "${DST}/T1w_norm.nii.gz"
 
 HAS_GPU=`python -c 'import torch; print(torch.cuda.is_available() or (hasattr(torch.backends, "mps") and torch.backends.mps.is_available()))'`
 if [ ${HAS_GPU} != 'True' ] ; then
@@ -99,7 +102,7 @@ fi
 
 # Skull-stripping
 if [ ${DO_SKULLSTRIP} -gt 0 ] ; then
-	# skull-strip using HD-BET
+	# skull-strip using mri_synthstrip
 	BET_OPTS=""
 	if [ "${MP2RAGE_INV2}x" != "x" ] ; then
 		echo "Using ${MP2RAGE_INV2} to create brain mask"
@@ -112,7 +115,7 @@ if [ ${DO_SKULLSTRIP} -gt 0 ] ; then
 	MASK_VOLUME=${DST}/T1w_norm_noskull_mask.nii.gz
 	export PYTORCH_ENABLE_MPS_FALLBACK=1
 	
-	python ${SCRIPT_DIR}/bet.py ${BET_OPTS} "${BET_INPUT_VOLUME}" "${IN_VOLUME}" || die "hd-bet failed"
+	python ${SCRIPT_DIR}/bet.py ${BET_OPTS} "${BET_INPUT_VOLUME}" "${IN_VOLUME}" || die "mri_synthstrip failed"
 else
 	# Assume input is already skull-stripped
 	IN_VOLUME=${DST}/T1w_norm.nii.gz

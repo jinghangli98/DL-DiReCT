@@ -21,6 +21,14 @@ if __name__ == '__main__':
         help='Normalized volume'
     )
 
+    parser.add_argument(
+        '--no-resample',
+        required=False,
+        default=False,
+        action='store_true',
+        help='Keep original resolution (still reorient to LIA)'
+    )
+
     args = parser.parse_args()
     
     src_nib = nib_funcs.squeeze_image(nib.load(args.source))
@@ -30,7 +38,7 @@ if __name__ == '__main__':
     
     # Avoid resampling if already 1mm iso-voxel
     # Note: Also in cases of tiny rounding error, e.g. (1.0000001, 1.0000001, 1.0)
-    if not np.allclose(src_nib.header.get_zooms(), [1, 1, 1]):
+    if not args.no_resample and not np.allclose(src_nib.header.get_zooms(), [1, 1, 1]):
         # requires re-sampling
         print('Resampling')
         dst_nib = nib_processing.conform(src_nib, orientation='LIA')
